@@ -1,0 +1,15 @@
+{
+  "domain": "ai_usage",
+  "name": "AI Usage",
+  "codeowners": [
+    "@kaschperle8324"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/kaschperle8324/ha-ai-usage",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/kaschperle8324/ha-ai-usage/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}

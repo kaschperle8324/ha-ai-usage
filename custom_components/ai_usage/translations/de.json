@@ -1,0 +1,137 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "AI Usage",
+        "description": "Welchen Verbrauch möchtest du einbinden?",
+        "menu_options": {
+          "claude_subscription": "Claude Abo (Pro/Max) – 5-Stunden- und Wochenlimit",
+          "anthropic_api": "Anthropic API – Kosten und Tokens",
+          "openai_api": "OpenAI API – Kosten und Tokens",
+          "mistral_api": "Mistral API – Monatskosten (nur Enterprise)"
+        }
+      },
+      "claude_subscription": {
+        "title": "Claude Abo verbinden",
+        "description": "1. Öffne diesen Link und melde dich mit deinem Claude-Konto an:\n{url}\n\n2. Nach dem Bestätigen zeigt die Seite einen Code an. Kopiere ihn vollständig (inklusive Teil nach dem #) und füge ihn unten ein.\n\nDie Anmeldung ist eigenständig – Claude Code auf deinem Rechner bleibt davon unberührt. Hinweis: Anthropic bietet für Abo-Daten keine offizielle Schnittstelle; das kann sich jederzeit ändern.",
+        "data": {
+          "auth_code": "Code",
+          "name": "Name"
+        }
+      },
+      "anthropic_api": {
+        "title": "Anthropic API",
+        "description": "Lege einen **Admin-Schlüssel** an: {url}\n\nEin normaler API-Schlüssel reicht nicht – nur Admin-Schlüssel dürfen Kosten und Verbrauch lesen.\n\nAdmin-Schlüssel gibt es nur für Organisationen, nicht für Einzelkonten.",
+        "data": {
+          "admin_key": "Admin-Schlüssel",
+          "name": "Name"
+        }
+      },
+      "openai_api": {
+        "title": "OpenAI API",
+        "description": "Lege einen **Admin-Schlüssel** an: {url}\n\nEin normaler API-Schlüssel reicht nicht – nur Admin-Schlüssel dürfen Kosten und Verbrauch lesen.\n\nNur der Organisationsinhaber kann Admin-Schlüssel erstellen. Ein ChatGPT-Plus-Abo liefert hier keine Daten.",
+        "data": {
+          "admin_key": "Admin-Schlüssel",
+          "name": "Name"
+        }
+      },
+      "mistral_api": {
+        "title": "Mistral API (experimentell)",
+        "description": "Lege einen **Admin-Schlüssel** an: {url}\n\nEin normaler API-Schlüssel reicht nicht – nur Admin-Schlüssel dürfen Kosten und Verbrauch lesen.\n\nDie Admin-API von Mistral ist nur im Enterprise-Tarif verfügbar.",
+        "data": {
+          "admin_key": "Admin-Schlüssel",
+          "name": "Name"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Erneut anmelden",
+        "description": "Der Zugang ist abgelaufen oder wurde widerrufen. Weiter, um dich neu anzumelden."
+      }
+    },
+    "error": {
+      "invalid_code": "Code ungültig oder abgelaufen. Bitte den neuen Link öffnen und erneut versuchen.",
+      "invalid_auth": "Schlüssel ungültig oder ohne Admin-Rechte.",
+      "cannot_connect": "Verbindung fehlgeschlagen. Details im Log.",
+      "rate_limited": "Zu viele Anfragen – bitte in ein paar Minuten erneut versuchen."
+    },
+    "abort": {
+      "reauth_successful": "Erneute Anmeldung erfolgreich."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Einstellungen",
+        "data": {
+          "scan_interval": "Abfrageintervall"
+        },
+        "data_description": {
+          "scan_interval": "Beim Claude Abo nicht unter 5 Minuten – der Endpunkt sperrt sonst kurzzeitig."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "five_hour": {
+        "name": "5-Stunden-Auslastung"
+      },
+      "five_hour_remaining": {
+        "name": "5-Stunden-Rest"
+      },
+      "five_hour_resets_at": {
+        "name": "5-Stunden-Reset"
+      },
+      "seven_day": {
+        "name": "Wochenauslastung"
+      },
+      "seven_day_remaining": {
+        "name": "Wochenrest"
+      },
+      "seven_day_resets_at": {
+        "name": "Wochen-Reset"
+      },
+      "seven_day_opus": {
+        "name": "Wochenauslastung Opus"
+      },
+      "seven_day_sonnet": {
+        "name": "Wochenauslastung Sonnet"
+      },
+      "extra_usage": {
+        "name": "Zusatznutzung"
+      },
+      "cost_month": {
+        "name": "Kosten Monat"
+      },
+      "cost_today": {
+        "name": "Kosten heute"
+      },
+      "input_tokens_month": {
+        "name": "Eingabe-Tokens Monat"
+      },
+      "output_tokens_month": {
+        "name": "Ausgabe-Tokens Monat"
+      },
+      "tokens_today": {
+        "name": "Tokens heute"
+      },
+      "requests_month": {
+        "name": "Anfragen Monat"
+      },
+      "last_update": {
+        "name": "Letzte Aktualisierung"
+      }
+    },
+    "binary_sensor": {
+      "five_hour_limit": {
+        "name": "5-Stunden-Limit erreicht"
+      },
+      "seven_day_limit": {
+        "name": "Wochenlimit erreicht"
+      },
+      "spend_limit": {
+        "name": "Ausgabenlimit erreicht"
+      }
+    }
+  }
+}
