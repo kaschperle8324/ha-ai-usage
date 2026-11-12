@@ -1,4 +1,4 @@
-"""Sensoren für Auslastung, Kosten und Tokens."""
+"""Sensoren für die Auslastung des Claude-Abos."""
 
 from __future__ import annotations
 
@@ -18,14 +18,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .api import day_start, month_start
-from .const import (
-    CONF_PROVIDER,
-    PROVIDER_ANTHROPIC_API,
-    PROVIDER_CLAUDE_SUB,
-    PROVIDER_MISTRAL_API,
-    PROVIDER_OPENAI_API,
-)
 from .coordinator import AiUsageConfigEntry, AiUsageCoordinator
 from .entity import AiUsageEntity
 
@@ -37,8 +29,6 @@ class AiUsageSensorDescription(SensorEntityDescription):
     value_fn: Callable[[dict[str, Any]], Any]
     # Wenn gesetzt: Sensor nur anlegen, wenn der Schlüssel in den Daten steht
     requires: str | None = None
-    monthly_total: bool = False
-    attr_fn: Callable[[dict[str, Any]], dict[str, Any]] | None = None
 
 
 def _get(key: str) -> Callable[[dict[str, Any]], Any]:
@@ -76,40 +66,16 @@ def _remaining_desc(key: str) -> AiUsageSensorDescription:
     )
 
 
-def _reset(key: str, *, requires: str | None = None) -> AiUsageSensorDescription:
+def _reset(key: str) -> AiUsageSensorDescription:
     return AiUsageSensorDescription(
         key=f"{key}_resets_at",
         device_class=SensorDeviceClass.TIMESTAMP,
         icon="mdi:timer-refresh-outline",
         value_fn=_get(f"{key}_resets_at"),
-        requires=requires,
     )
 
 
-def _cost(key: str, *, monthly: bool) -> AiUsageSensorDescription:
-    return AiUsageSensorDescription(
-        key=key,
-        device_class=SensorDeviceClass.MONETARY,
-        state_class=SensorStateClass.TOTAL,
-        suggested_display_precision=2,
-        icon="mdi:cash",
-        value_fn=_get(key),
-        monthly_total=monthly,
-    )
-
-
-def _tokens(key: str, *, monthly: bool = True) -> AiUsageSensorDescription:
-    return AiUsageSensorDescription(
-        key=key,
-        native_unit_of_measurement="Tokens",
-        state_class=SensorStateClass.TOTAL,
-        icon="mdi:counter",
-        value_fn=_get(key),
-        monthly_total=monthly,
-    )
-
-
-CLAUDE_SENSORS: tuple[AiUsageSensorDescription, ...] = (
+SENSORS: tuple[AiUsageSensorDescription, ...] = (
     _percent("five_hour", icon="mdi:clock-time-five-outline"),
     _remaining_desc("five_hour"),
     _reset("five_hour"),
@@ -121,45 +87,6 @@ CLAUDE_SENSORS: tuple[AiUsageSensorDescription, ...] = (
     _percent("extra_usage", requires="extra_usage", icon="mdi:cash-plus"),
 )
 
-API_SENSORS: tuple[AiUsageSensorDescription, ...] = (
-    _cost("cost_month", monthly=True),
-    _cost("cost_today", monthly=False),
-    _tokens("input_tokens_month"),
-    _tokens("output_tokens_month"),
-    _tokens("tokens_today", monthly=False),
-)
-
-OPENAI_EXTRA: tuple[AiUsageSensorDescription, ...] = (
-    AiUsageSensorDescription(
-        key="requests_month",
-        native_unit_of_measurement="Anfragen",
-        state_class=SensorStateClass.TOTAL,
-        icon="mdi:swap-horizontal",
-        value_fn=_get("requests_month"),
-        monthly_total=True,
-    ),
-)
-
-MISTRAL_SENSORS: tuple[AiUsageSensorDescription, ...] = (
-    AiUsageSensorDescription(
-        key="cost_month",
-        device_class=SensorDeviceClass.MONETARY,
-        state_class=SensorStateClass.TOTAL,
-        suggested_display_precision=2,
-        icon="mdi:cash",
-        value_fn=_get("cost_month"),
-        monthly_total=True,
-        attr_fn=lambda d: {"kategorien": d.get("categories", {})},
-    ),
-)
-
-SENSORS_BY_PROVIDER: dict[str, tuple[AiUsageSensorDescription, ...]] = {
-    PROVIDER_CLAUDE_SUB: CLAUDE_SENSORS,
-    PROVIDER_ANTHROPIC_API: API_SENSORS,
-    PROVIDER_OPENAI_API: API_SENSORS + OPENAI_EXTRA,
-    PROVIDER_MISTRAL_API: MISTRAL_SENSORS,
-}
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -169,43 +96,26 @@ async def async_setup_entry(
     """Sensoren anlegen."""
     coordinator = entry.runtime_data
     data = coordinator.data or {}
-    descriptions = SENSORS_BY_PROVIDER.get(entry.data[CONF_PROVIDER], ())
     async_add_entities(
         AiUsageSensor(coordinator, desc)
-        for desc in descriptions
+        for desc in SENSORS
         if desc.requires is None or desc.requires in data
     )
     async_add_entities([LastUpdateSensor(coordinator)])
 
 
 class AiUsageSensor(AiUsageEntity, SensorEntity):
-    """Ein Messwert eines Anbieters."""
+    """Ein Messwert des Abos."""
 
     entity_description: AiUsageSensorDescription
 
     def __init__(self, coordinator: AiUsageCoordinator, description: AiUsageSensorDescription) -> None:
         super().__init__(coordinator, description.key)
         self.entity_description = description
-        if description.device_class == SensorDeviceClass.MONETARY:
-            self._attr_native_unit_of_measurement = (coordinator.data or {}).get("currency", "USD")
 
     @property
     def native_value(self) -> Any:
         return self.entity_description.value_fn(self.coordinator.data or {})
-
-    @property
-    def last_reset(self) -> datetime | None:
-        if self.entity_description.state_class != SensorStateClass.TOTAL:
-            return None
-        if self.entity_description.monthly_total:
-            return month_start()
-        return day_start()
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        if self.entity_description.attr_fn is None:
-            return None
-        return self.entity_description.attr_fn(self.coordinator.data or {})
 
 
 class LastUpdateSensor(AiUsageEntity, SensorEntity):

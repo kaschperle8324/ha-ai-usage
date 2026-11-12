@@ -20,42 +20,9 @@ CLAUDE_RAW = {
     "seven_day_sonnet": {"utilization": 12.0, "resets_at": None},
 }
 
-OPENAI_DATA = {
-    "cost_month": 12.34, "cost_today": 0.56, "currency": "USD",
-    "input_tokens_month": 1000, "output_tokens_month": 200, "tokens_today": 50, "requests_month": 7,
-}
-
-
-async def test_openai_flow_and_sensors(hass: HomeAssistant) -> None:
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert result["type"] is FlowResultType.MENU
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "openai_api"})
-    assert result["step_id"] == "openai_api"
-
-    with patch.object(api, "validate_admin_key", AsyncMock(side_effect=api.AuthError("nope"))):
-        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"admin_key": "x", "name": "OpenAI"})
-    assert result["errors"] == {"base": "invalid_auth"}
-
-    with (
-        patch.object(api, "validate_admin_key", AsyncMock()),
-        patch.object(api, "openai_fetch", AsyncMock(return_value=OPENAI_DATA)),
-    ):
-        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"admin_key": "sk-admin-1", "name": "OpenAI"})
-        await hass.async_block_till_done()
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"] == {"provider": "openai_api", "admin_key": "sk-admin-1"}
-
-    state = hass.states.get("sensor.openai_cost_this_month")
-    assert state is not None, [s.entity_id for s in hass.states.async_all()]
-    assert state.state == "12.34"
-    assert state.attributes["unit_of_measurement"] == "USD"
-    assert hass.states.get("sensor.openai_requests_this_month").state == "7"
-
-
 async def test_claude_flow_sensors_and_refresh(hass: HomeAssistant) -> None:
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "claude_subscription"})
-    assert result["step_id"] == "claude_subscription"
+    assert result["step_id"] == "user"
     assert result["description_placeholders"]["url"].startswith("https://claude.ai/oauth/authorize?")
 
     tokens = api.OAuthTokens("at1", "rt1", time.time() + 3600)
@@ -127,14 +94,25 @@ async def test_rate_limit_keeps_values(hass: HomeAssistant) -> None:
 
 
 async def test_options_flow(hass: HomeAssistant) -> None:
-    entry = MockConfigEntry(domain=DOMAIN, title="OpenAI", data={"provider": "openai_api", "admin_key": "k"})
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Claude",
+        data={"provider": "claude_subscription", "access_token": "a", "refresh_token": "r", "expires_at": time.time() + 3600},
+    )
     entry.add_to_hass(hass)
-    with patch.object(api, "openai_fetch", AsyncMock(return_value=OPENAI_DATA)):
+    with patch.object(api, "claude_fetch_usage", AsyncMock(return_value=CLAUDE_RAW)):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
+        assert entry.runtime_data.update_interval.total_seconds() == 600
         result = await hass.config_entries.options.async_init(entry.entry_id)
         result = await hass.config_entries.options.async_configure(result["flow_id"], {"scan_interval": 15})
         await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options == {"scan_interval": 15}
     assert entry.runtime_data.update_interval.total_seconds() == 900
+
+
+async def test_removed_provider_does_not_load(hass: HomeAssistant) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, title="OpenAI", data={"provider": "openai_api", "admin_key": "k"})
+    entry.add_to_hass(hass)
+    assert not await hass.config_entries.async_setup(entry.entry_id)
+    assert entry.state is config_entries.ConfigEntryState.SETUP_ERROR

@@ -1,4 +1,4 @@
-"""HTTP-Clients für die Verbrauchsdaten der KI-Anbieter.
+"""HTTP-Client für die Auslastung des Claude-Abos.
 
 Dieses Modul hat bewusst keine Abhängigkeit zu Home Assistant, damit die
 Auswertung der Antworten eigenständig getestet werden kann.
@@ -11,13 +11,13 @@ import hashlib
 import secrets
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode
 
 import aiohttp
 
-USER_AGENT = "ha-ai-usage/1.0"
+USER_AGENT = "ha-ai-usage/1.1"
 TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 
@@ -31,22 +31,6 @@ class AuthError(ApiError):
 
 class RateLimitError(ApiError):
     """Anbieter hat die Anfrage wegen zu vieler Abrufe abgelehnt."""
-
-
-def month_start(now: datetime | None = None) -> datetime:
-    """Beginn des laufenden Monats (UTC)."""
-    now = now or datetime.now(UTC)
-    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-
-def day_start(now: datetime | None = None) -> datetime:
-    """Beginn des laufenden Tages (UTC)."""
-    now = now or datetime.now(UTC)
-    return now.replace(hour=0, minute=0, second=0, microsecond=0)
-
-
-def _iso(dt: datetime) -> str:
-    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _num(value: Any) -> float:
@@ -65,7 +49,6 @@ async def _request(
     url: str,
     *,
     headers: dict[str, str] | None = None,
-    params: Any = None,
     json: Any = None,
 ) -> Any:
     hdrs = {"User-Agent": USER_AGENT, "Accept": "application/json"}
@@ -73,7 +56,7 @@ async def _request(
         hdrs.update(headers)
     try:
         async with session.request(
-            method, url, headers=hdrs, params=params, json=json, timeout=TIMEOUT
+            method, url, headers=hdrs, json=json, timeout=TIMEOUT
         ) as resp:
             if resp.status in (401, 403):
                 text = await resp.text()
@@ -89,10 +72,6 @@ async def _request(
     except TimeoutError as err:
         raise ApiError("Zeitüberschreitung") from err
 
-
-# ---------------------------------------------------------------------------
-# Claude Abo (Pro/Max) – inoffizieller OAuth-Endpunkt
-# ---------------------------------------------------------------------------
 
 CLAUDE_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 CLAUDE_AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
@@ -263,235 +242,3 @@ def parse_claude_usage(data: dict[str, Any]) -> dict[str, Any]:
             if extra.get(src) is not None:
                 result[dst] = _num(extra.get(src))
     return result
-
-
-# ---------------------------------------------------------------------------
-# Anthropic API (Admin API, offiziell)
-# ---------------------------------------------------------------------------
-
-ANTHROPIC_BASE = "https://api.anthropic.com/v1/organizations"
-
-
-def _anthropic_headers(key: str) -> dict[str, str]:
-    return {"x-api-key": key, "anthropic-version": "2023-06-01"}
-
-
-async def _anthropic_paged(
-    session: aiohttp.ClientSession, key: str, path: str, params: dict[str, Any]
-) -> list[dict[str, Any]]:
-    buckets: list[dict[str, Any]] = []
-    page: str | None = None
-    for _ in range(20):
-        query = dict(params)
-        if page:
-            query["page"] = page
-        data = await _request(
-            session, "GET", f"{ANTHROPIC_BASE}/{path}", headers=_anthropic_headers(key), params=query
-        )
-        buckets.extend(data.get("data") or [])
-        if not data.get("has_more") or not data.get("next_page"):
-            break
-        page = data["next_page"]
-    return buckets
-
-
-def parse_anthropic_cost(buckets: list[dict[str, Any]], today: datetime) -> dict[str, float]:
-    """Kosten (Cent-Strings) zu USD summieren – Monat und heute."""
-    month = day = 0.0
-    today_key = today.strftime("%Y-%m-%d")
-    for bucket in buckets:
-        cents = sum(_num(r.get("amount")) for r in bucket.get("results") or [])
-        month += cents
-        if str(bucket.get("starting_at", "")).startswith(today_key):
-            day += cents
-    return {"cost_month": round(month / 100, 4), "cost_today": round(day / 100, 4)}
-
-
-def _anthropic_input_tokens(r: dict[str, Any]) -> float:
-    cache = r.get("cache_creation") or {}
-    return (
-        _num(r.get("uncached_input_tokens"))
-        + _num(r.get("cache_read_input_tokens"))
-        + sum(_num(v) for v in cache.values() if not isinstance(v, dict))
-    )
-
-
-def parse_anthropic_usage(buckets: list[dict[str, Any]], today: datetime) -> dict[str, int]:
-    """Token-Summen für Monat und heute."""
-    out = {"input_tokens_month": 0.0, "output_tokens_month": 0.0, "tokens_today": 0.0}
-    today_key = today.strftime("%Y-%m-%d")
-    for bucket in buckets:
-        is_today = str(bucket.get("starting_at", "")).startswith(today_key)
-        for r in bucket.get("results") or []:
-            inp = _anthropic_input_tokens(r)
-            outp = _num(r.get("output_tokens"))
-            out["input_tokens_month"] += inp
-            out["output_tokens_month"] += outp
-            if is_today:
-                out["tokens_today"] += inp + outp
-    return {k: int(v) for k, v in out.items()}
-
-
-async def anthropic_fetch(session: aiohttp.ClientSession, key: str) -> dict[str, Any]:
-    """Kosten und Tokens des laufenden Monats abrufen."""
-    now = datetime.now(UTC)
-    params = {"starting_at": _iso(month_start(now)), "bucket_width": "1d", "limit": 31}
-    cost = await _anthropic_paged(session, key, "cost_report", params)
-    usage = await _anthropic_paged(session, key, "usage_report/messages", params)
-    result: dict[str, Any] = {"currency": "USD"}
-    result.update(parse_anthropic_cost(cost, now))
-    result.update(parse_anthropic_usage(usage, now))
-    return result
-
-
-# ---------------------------------------------------------------------------
-# OpenAI API (Admin API, offiziell)
-# ---------------------------------------------------------------------------
-
-OPENAI_BASE = "https://api.openai.com/v1/organization"
-
-
-async def _openai_paged(
-    session: aiohttp.ClientSession, key: str, path: str, params: dict[str, Any]
-) -> list[dict[str, Any]]:
-    buckets: list[dict[str, Any]] = []
-    page: str | None = None
-    for _ in range(20):
-        query = dict(params)
-        if page:
-            query["page"] = page
-        data = await _request(
-            session,
-            "GET",
-            f"{OPENAI_BASE}/{path}",
-            headers={"Authorization": f"Bearer {key}"},
-            params=query,
-        )
-        buckets.extend(data.get("data") or [])
-        if not data.get("has_more") or not data.get("next_page"):
-            break
-        page = data["next_page"]
-    return buckets
-
-
-def parse_openai_costs(buckets: list[dict[str, Any]], today: datetime) -> dict[str, Any]:
-    """Kosten summieren – Monat und heute."""
-    month = day = 0.0
-    currency = "USD"
-    today_ts = int(day_start(today).timestamp())
-    for bucket in buckets:
-        total = 0.0
-        for r in bucket.get("results") or []:
-            amount = r.get("amount") or {}
-            total += _num(amount.get("value"))
-            if amount.get("currency"):
-                currency = str(amount["currency"]).upper()
-        month += total
-        if int(_num(bucket.get("start_time"))) >= today_ts:
-            day += total
-    return {"cost_month": round(month, 4), "cost_today": round(day, 4), "currency": currency}
-
-
-def parse_openai_usage(buckets: list[dict[str, Any]], today: datetime) -> dict[str, int]:
-    """Token- und Anfragezahlen summieren."""
-    out = {"input_tokens_month": 0.0, "output_tokens_month": 0.0, "tokens_today": 0.0, "requests_month": 0.0}
-    today_ts = int(day_start(today).timestamp())
-    for bucket in buckets:
-        is_today = int(_num(bucket.get("start_time"))) >= today_ts
-        for r in bucket.get("results") or []:
-            inp = _num(r.get("input_tokens"))
-            outp = _num(r.get("output_tokens"))
-            out["input_tokens_month"] += inp
-            out["output_tokens_month"] += outp
-            out["requests_month"] += _num(r.get("num_model_requests"))
-            if is_today:
-                out["tokens_today"] += inp + outp
-    return {k: int(v) for k, v in out.items()}
-
-
-async def openai_fetch(session: aiohttp.ClientSession, key: str) -> dict[str, Any]:
-    """Kosten und Tokens des laufenden Monats abrufen."""
-    now = datetime.now(UTC)
-    params = {"start_time": int(month_start(now).timestamp()), "bucket_width": "1d", "limit": 31}
-    costs = await _openai_paged(session, key, "costs", params)
-    usage = await _openai_paged(session, key, "usage/completions", params)
-    result = parse_openai_costs(costs, now)
-    result.update(parse_openai_usage(usage, now))
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Mistral API (Admin API, nur Enterprise) – experimentell
-# ---------------------------------------------------------------------------
-
-MISTRAL_BASE = "https://api.mistral.ai/v1/admin"
-_MISTRAL_SKIP = {"prices", "date", "start_date", "end_date", "next_month", "previous_month", "vibe_usage"}
-_MISTRAL_COST_KEYS = ("price", "cost", "amount")
-
-
-def _sum_costs(node: Any, inside_cost: bool = False) -> float:
-    """Zahlen unter Schlüsseln wie *price*/*cost*/*amount* rekursiv summieren."""
-    if isinstance(node, dict):
-        total = 0.0
-        for key, value in node.items():
-            k = str(key).lower()
-            is_cost = any(c in k for c in _MISTRAL_COST_KEYS) and "unit" not in k
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                if is_cost:
-                    total += float(value)
-            elif isinstance(value, str) and is_cost:
-                total += _num(value)
-            else:
-                total += _sum_costs(value, inside_cost or is_cost)
-        return total
-    if isinstance(node, list):
-        return sum(_sum_costs(item, inside_cost) for item in node)
-    return 0.0
-
-
-def parse_mistral_usage(data: dict[str, Any]) -> dict[str, Any]:
-    """Monatskosten aus der Mistral-Antwort lesen (Struktur nur teilweise dokumentiert)."""
-    categories: dict[str, float] = {}
-    for key, value in data.items():
-        if key in _MISTRAL_SKIP or not isinstance(value, (dict, list)):
-            continue
-        cost = round(_sum_costs(value), 4)
-        if cost:
-            categories[key] = cost
-    return {
-        "cost_month": round(sum(categories.values()), 4),
-        "currency": (data.get("currency") or "EUR").upper(),
-        "categories": categories,
-    }
-
-
-async def mistral_fetch(session: aiohttp.ClientSession, key: str) -> dict[str, Any]:
-    """Verbrauch des laufenden Monats und Ausgabenlimit abrufen."""
-    now = datetime.now(UTC)
-    headers = {"x-api-key": key}
-    usage = await _request(
-        session, "GET", f"{MISTRAL_BASE}/usage", headers=headers,
-        params={"month": now.month, "year": now.year},
-    )
-    result = parse_mistral_usage(usage)
-    try:
-        limits = await _request(session, "GET", f"{MISTRAL_BASE}/spend-limit", headers=headers)
-        completion = ((limits or {}).get("limits") or {}).get("completion") or {}
-        if "monthly_limit_reached" in completion:
-            result["limit_reached"] = bool(completion["monthly_limit_reached"])
-    except AuthError:
-        raise
-    except ApiError:
-        pass
-    result["raw"] = usage
-    return result
-
-
-async def validate_admin_key(session: aiohttp.ClientSession, provider: str, key: str) -> None:
-    """Schlüssel mit einem kleinen Abruf prüfen (wirft AuthError/ApiError)."""
-    if provider == "anthropic_api":
-        await anthropic_fetch(session, key)
-    elif provider == "openai_api":
-        await openai_fetch(session, key)
-    elif provider == "mistral_api":
-        await mistral_fetch(session, key)

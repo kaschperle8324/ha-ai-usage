@@ -1,17 +1,28 @@
-"""AI Usage – Verbrauch von Claude, OpenAI und Mistral in Home Assistant."""
+"""AI Usage – Auslastung des Claude-Abos in Home Assistant."""
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryError
 
+from .const import CONF_PROVIDER, PROVIDER_CLAUDE_SUB
 from .coordinator import AiUsageConfigEntry, AiUsageCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: AiUsageConfigEntry) -> bool:
     """Eintrag einrichten."""
+    if entry.data.get(CONF_PROVIDER, PROVIDER_CLAUDE_SUB) != PROVIDER_CLAUDE_SUB:
+        # Ab 1.1.0 wird nur noch das Claude-Abo unterstützt
+        raise ConfigEntryError(
+            "Dieser Anbieter wird nicht mehr unterstützt. Bitte den Eintrag löschen."
+        )
     coordinator = AiUsageCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator

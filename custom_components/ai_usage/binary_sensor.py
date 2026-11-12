@@ -14,7 +14,6 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import CONF_PROVIDER, PROVIDER_CLAUDE_SUB, PROVIDER_MISTRAL_API
 from .coordinator import AiUsageConfigEntry, AiUsageCoordinator
 from .entity import AiUsageEntity
 
@@ -35,30 +34,20 @@ def _at_limit(key: str) -> Callable[[dict[str, Any]], bool | None]:
     return fn
 
 
-BINARY_BY_PROVIDER: dict[str, tuple[AiUsageBinaryDescription, ...]] = {
-    PROVIDER_CLAUDE_SUB: (
-        AiUsageBinaryDescription(
-            key="five_hour_limit",
-            device_class=BinarySensorDeviceClass.PROBLEM,
-            value_fn=_at_limit("five_hour"),
-            requires="five_hour",
-        ),
-        AiUsageBinaryDescription(
-            key="seven_day_limit",
-            device_class=BinarySensorDeviceClass.PROBLEM,
-            value_fn=_at_limit("seven_day"),
-            requires="seven_day",
-        ),
+BINARY_SENSORS: tuple[AiUsageBinaryDescription, ...] = (
+    AiUsageBinaryDescription(
+        key="five_hour_limit",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        value_fn=_at_limit("five_hour"),
+        requires="five_hour",
     ),
-    PROVIDER_MISTRAL_API: (
-        AiUsageBinaryDescription(
-            key="spend_limit",
-            device_class=BinarySensorDeviceClass.PROBLEM,
-            value_fn=lambda d: d.get("limit_reached"),
-            requires="limit_reached",
-        ),
+    AiUsageBinaryDescription(
+        key="seven_day_limit",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        value_fn=_at_limit("seven_day"),
+        requires="seven_day",
     ),
-}
+)
 
 
 async def async_setup_entry(
@@ -70,9 +59,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     data = coordinator.data or {}
     async_add_entities(
-        AiUsageBinarySensor(coordinator, desc)
-        for desc in BINARY_BY_PROVIDER.get(entry.data[CONF_PROVIDER], ())
-        if desc.requires in data
+        AiUsageBinarySensor(coordinator, desc) for desc in BINARY_SENSORS if desc.requires in data
     )
 
 

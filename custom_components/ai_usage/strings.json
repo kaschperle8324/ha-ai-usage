@@ -2,44 +2,10 @@
   "config": {
     "step": {
       "user": {
-        "title": "AI Usage",
-        "description": "Which usage do you want to add?",
-        "menu_options": {
-          "claude_subscription": "Claude subscription (Pro/Max) – 5-hour and weekly limit",
-          "anthropic_api": "Anthropic API – cost and tokens",
-          "openai_api": "OpenAI API – cost and tokens",
-          "mistral_api": "Mistral API – monthly cost (Enterprise only)"
-        }
-      },
-      "claude_subscription": {
-        "title": "Connect Claude subscription",
+        "title": "Claude subscription",
         "description": "1. Open this link and sign in with your Claude account:\n{url}\n\n2. After confirming, the page shows a code. Copy all of it (including the part after #) and paste it below.\n\nThis is a separate login – Claude Code on your computer is not affected. Note: Anthropic offers no official interface for subscription data; this may change at any time.",
         "data": {
           "auth_code": "Code",
-          "name": "Name"
-        }
-      },
-      "anthropic_api": {
-        "title": "Anthropic API",
-        "description": "Create an **admin key**: {url}\n\nA regular API key is not enough – only admin keys can read cost and usage data.\n\nAdmin keys are only available for organizations, not individual accounts.",
-        "data": {
-          "admin_key": "Admin key",
-          "name": "Name"
-        }
-      },
-      "openai_api": {
-        "title": "OpenAI API",
-        "description": "Create an **admin key**: {url}\n\nA regular API key is not enough – only admin keys can read cost and usage data.\n\nOnly the organization owner can create admin keys. A ChatGPT Plus subscription provides no data here.",
-        "data": {
-          "admin_key": "Admin key",
-          "name": "Name"
-        }
-      },
-      "mistral_api": {
-        "title": "Mistral API (experimental)",
-        "description": "Create an **admin key**: {url}\n\nA regular API key is not enough – only admin keys can read cost and usage data.\n\nMistral's admin API is only available on Enterprise plans.",
-        "data": {
-          "admin_key": "Admin key",
           "name": "Name"
         }
       },
@@ -50,7 +16,6 @@
     },
     "error": {
       "invalid_code": "Code invalid or expired. Please open the new link and try again.",
-      "invalid_auth": "Key invalid or lacks admin permissions.",
       "cannot_connect": "Connection failed. See log for details.",
       "rate_limited": "Too many requests – please try again in a few minutes."
     },
@@ -66,7 +31,7 @@
           "scan_interval": "Polling interval"
         },
         "data_description": {
-          "scan_interval": "For the Claude subscription keep it at 5 minutes or more – the endpoint blocks otherwise."
+          "scan_interval": "Keep it at 5 minutes or more – the endpoint blocks otherwise."
         }
       }
     }
@@ -100,24 +65,6 @@
       "extra_usage": {
         "name": "Extra usage"
       },
-      "cost_month": {
-        "name": "Cost this month"
-      },
-      "cost_today": {
-        "name": "Cost today"
-      },
-      "input_tokens_month": {
-        "name": "Input tokens this month"
-      },
-      "output_tokens_month": {
-        "name": "Output tokens this month"
-      },
-      "tokens_today": {
-        "name": "Tokens today"
-      },
-      "requests_month": {
-        "name": "Requests this month"
-      },
       "last_update": {
         "name": "Last update"
       }
@@ -128,9 +75,6 @@
       },
       "seven_day_limit": {
         "name": "Weekly limit reached"
-      },
-      "spend_limit": {
-        "name": "Spend limit reached"
       }
     }
   }

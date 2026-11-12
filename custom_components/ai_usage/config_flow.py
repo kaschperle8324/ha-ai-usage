@@ -28,32 +28,22 @@ from homeassistant.helpers.selector import (
 from . import api
 from .const import (
     CONF_ACCESS_TOKEN,
-    CONF_ADMIN_KEY,
     CONF_EXPIRES_AT,
     CONF_PROVIDER,
     CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_MINUTES,
+    DEFAULT_TITLE,
     DOMAIN,
     MAX_SCAN_MINUTES,
     MIN_SCAN_MINUTES,
-    PROVIDER_ANTHROPIC_API,
     PROVIDER_CLAUDE_SUB,
-    PROVIDER_MISTRAL_API,
-    PROVIDER_OPENAI_API,
-    PROVIDER_TITLES,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 CONF_AUTH_CODE = "auth_code"
 CONF_NAME = "name"
-
-KEY_HINTS = {
-    PROVIDER_ANTHROPIC_API: "https://console.anthropic.com/settings/admin-keys",
-    PROVIDER_OPENAI_API: "https://platform.openai.com/settings/organization/admin-keys",
-    PROVIDER_MISTRAL_API: "https://admin.mistral.ai",
-}
 
 
 class AiUsageConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -63,7 +53,6 @@ class AiUsageConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._pkce: api.PkceSession | None = None
-        self._provider: str | None = None
 
     @staticmethod
     @callback
@@ -71,22 +60,6 @@ class AiUsageConfigFlow(ConfigFlow, domain=DOMAIN):
         return AiUsageOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Anbieter auswählen."""
-        return self.async_show_menu(
-            step_id="user",
-            menu_options=[
-                PROVIDER_CLAUDE_SUB,
-                PROVIDER_ANTHROPIC_API,
-                PROVIDER_OPENAI_API,
-                PROVIDER_MISTRAL_API,
-            ],
-        )
-
-    # ------------------------------------------------------------------ Claude Abo
-
-    async def async_step_claude_subscription(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
         """Anmeldung beim Claude-Abo über einen Code zum Einfügen."""
         errors: dict[str, str] = {}
         if self._pkce is None:
@@ -124,8 +97,7 @@ class AiUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                         self._get_reauth_entry(), data_updates=data
                     )
                 return self.async_create_entry(
-                    title=user_input.get(CONF_NAME) or PROVIDER_TITLES[PROVIDER_CLAUDE_SUB],
-                    data=data,
+                    title=user_input.get(CONF_NAME) or DEFAULT_TITLE, data=data
                 )
 
         schema: dict[Any, Any] = {
@@ -134,69 +106,16 @@ class AiUsageConfigFlow(ConfigFlow, domain=DOMAIN):
             )
         }
         if self.source != SOURCE_REAUTH:
-            schema[vol.Optional(CONF_NAME, default=PROVIDER_TITLES[PROVIDER_CLAUDE_SUB])] = str
+            schema[vol.Optional(CONF_NAME, default=DEFAULT_TITLE)] = str
         return self.async_show_form(
-            step_id="claude_subscription",
+            step_id="user",
             data_schema=vol.Schema(schema),
             description_placeholders={"url": self._pkce.url},
             errors=errors,
         )
 
-    # ------------------------------------------------------------------ API-Konten
-
-    async def _admin_key_step(
-        self, provider: str, user_input: dict[str, Any] | None
-    ) -> ConfigFlowResult:
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            key = user_input[CONF_ADMIN_KEY].strip()
-            try:
-                await api.validate_admin_key(async_get_clientsession(self.hass), provider, key)
-            except api.AuthError:
-                errors["base"] = "invalid_auth"
-            except api.RateLimitError:
-                errors["base"] = "rate_limited"
-            except api.ApiError as err:
-                _LOGGER.warning("Prüfung des Schlüssels fehlgeschlagen: %s", err)
-                errors["base"] = "cannot_connect"
-            else:
-                data = {CONF_PROVIDER: provider, CONF_ADMIN_KEY: key}
-                if self.source == SOURCE_REAUTH:
-                    return self.async_update_reload_and_abort(
-                        self._get_reauth_entry(), data_updates=data
-                    )
-                return self.async_create_entry(
-                    title=user_input.get(CONF_NAME) or PROVIDER_TITLES[provider], data=data
-                )
-
-        schema: dict[Any, Any] = {
-            vol.Required(CONF_ADMIN_KEY): TextSelector(
-                TextSelectorConfig(type=TextSelectorType.PASSWORD)
-            )
-        }
-        if self.source != SOURCE_REAUTH:
-            schema[vol.Optional(CONF_NAME, default=PROVIDER_TITLES[provider])] = str
-        return self.async_show_form(
-            step_id=provider,
-            data_schema=vol.Schema(schema),
-            description_placeholders={"url": KEY_HINTS[provider]},
-            errors=errors,
-        )
-
-    async def async_step_anthropic_api(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        return await self._admin_key_step(PROVIDER_ANTHROPIC_API, user_input)
-
-    async def async_step_openai_api(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        return await self._admin_key_step(PROVIDER_OPENAI_API, user_input)
-
-    async def async_step_mistral_api(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        return await self._admin_key_step(PROVIDER_MISTRAL_API, user_input)
-
-    # ------------------------------------------------------------------ Erneute Anmeldung
-
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
         """Zugang ist abgelaufen oder wurde widerrufen."""
-        self._provider = entry_data[CONF_PROVIDER]
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -204,9 +123,7 @@ class AiUsageConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         if user_input is None:
             return self.async_show_form(step_id="reauth_confirm")
-        if self._provider == PROVIDER_CLAUDE_SUB:
-            return await self.async_step_claude_subscription()
-        return await self._admin_key_step(self._provider, None)
+        return await self.async_step_user()
 
 
 class AiUsageOptionsFlow(OptionsFlow):
@@ -217,10 +134,7 @@ class AiUsageOptionsFlow(OptionsFlow):
             return self.async_create_entry(
                 data={CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL])}
             )
-        provider = self.config_entry.data[CONF_PROVIDER]
-        current = self.config_entry.options.get(
-            CONF_SCAN_INTERVAL, DEFAULT_SCAN_MINUTES.get(provider, 30)
-        )
+        current = self.config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_MINUTES)
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(

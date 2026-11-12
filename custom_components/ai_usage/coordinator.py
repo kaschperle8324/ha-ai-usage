@@ -1,4 +1,4 @@
-"""Datenabruf je Konfigurationseintrag."""
+"""Regelmäßiger Abruf der Abo-Auslastung."""
 
 from __future__ import annotations
 
@@ -16,17 +16,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from . import api
 from .const import (
     CONF_ACCESS_TOKEN,
-    CONF_ADMIN_KEY,
     CONF_EXPIRES_AT,
-    CONF_PROVIDER,
     CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_MINUTES,
     DOMAIN,
-    PROVIDER_ANTHROPIC_API,
-    PROVIDER_CLAUDE_SUB,
-    PROVIDER_MISTRAL_API,
-    PROVIDER_OPENAI_API,
     TOKEN_REFRESH_MARGIN,
 )
 
@@ -36,38 +30,25 @@ type AiUsageConfigEntry = ConfigEntry[AiUsageCoordinator]
 
 
 class AiUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Fragt einen Anbieter regelmäßig ab."""
+    """Fragt die Auslastung des Claude-Abos ab."""
 
     config_entry: AiUsageConfigEntry
 
     def __init__(self, hass: HomeAssistant, entry: AiUsageConfigEntry) -> None:
-        self.provider: str = entry.data[CONF_PROVIDER]
         self.options_snapshot = dict(entry.options)
-        minutes = entry.options.get(
-            CONF_SCAN_INTERVAL, DEFAULT_SCAN_MINUTES.get(self.provider, 30)
-        )
+        minutes = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_MINUTES)
         super().__init__(
             hass,
             _LOGGER,
             config_entry=entry,
-            name=f"{DOMAIN}_{self.provider}",
+            name=DOMAIN,
             update_interval=timedelta(minutes=minutes),
         )
         self._session = async_get_clientsession(hass)
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
-            if self.provider == PROVIDER_CLAUDE_SUB:
-                return await self._update_claude()
-            key = self.config_entry.data[CONF_ADMIN_KEY]
-            if self.provider == PROVIDER_ANTHROPIC_API:
-                return await api.anthropic_fetch(self._session, key)
-            if self.provider == PROVIDER_OPENAI_API:
-                return await api.openai_fetch(self._session, key)
-            if self.provider == PROVIDER_MISTRAL_API:
-                data = await api.mistral_fetch(self._session, key)
-                _LOGGER.debug("Mistral-Rohdaten: %s", data.get("raw"))
-                return data
+            return await self._update_claude()
         except api.AuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except api.RateLimitError as err:
@@ -78,9 +59,8 @@ class AiUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(str(err)) from err
         except api.ApiError as err:
             raise UpdateFailed(str(err)) from err
-        raise UpdateFailed(f"Unbekannter Anbieter {self.provider}")
 
-    async def _ensure_claude_token(self, force: bool = False) -> str:
+    async def _ensure_token(self, force: bool = False) -> str:
         data = self.config_entry.data
         expires_at = float(data.get(CONF_EXPIRES_AT, 0))
         if not force and time.time() < expires_at - TOKEN_REFRESH_MARGIN.total_seconds():
@@ -100,15 +80,12 @@ class AiUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return tokens.access_token
 
     async def _update_claude(self) -> dict[str, Any]:
-        token = await self._ensure_claude_token()
+        token = await self._ensure_token()
         try:
             raw = await api.claude_fetch_usage(self._session, token)
-        except api.AuthError:
-            # Token wurde evtl. vorzeitig ungültig – einmal erneuern
-            token = await self._ensure_claude_token(force=True)
-            raw = await api.claude_fetch_usage(self._session, token)
-        except api.RateLimitError:
-            # Rate-Limits gelten je Zugriffstoken; ein frisches Token hilft meist
-            token = await self._ensure_claude_token(force=True)
+        except (api.AuthError, api.RateLimitError):
+            # Token evtl. vorzeitig ungültig; Rate-Limits gelten je Token –
+            # ein frisches Token hilft in beiden Fällen meist.
+            token = await self._ensure_token(force=True)
             raw = await api.claude_fetch_usage(self._session, token)
         return api.parse_claude_usage(raw)
